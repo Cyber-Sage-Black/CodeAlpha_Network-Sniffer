@@ -4,7 +4,7 @@ A friendly, beginner‑oriented Python tool that lets you peek at network packet
 
 > Safety first: Only capture traffic on networks and machines where you have explicit permission. Capturing others’ traffic without consent may be illegal and unethical. Prefer PCAP analysis when learning.
 
-## What this tool does (in plain English)
+## What this tool does 
 - **Reads packets** from a saved capture file (PCAP) or **sniffs live** traffic (admin/root required for live).
 - Shows useful **metadata** about each packet: time, who sent it (source IP), who got it (destination IP), what protocol was used (IPv4/IPv6/ARP + TCP/UDP/ICMP), ports, and size.
 - Provides a short, **human explanation** for common protocols (e.g., “ICMP = ping”).
