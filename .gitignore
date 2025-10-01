@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+ENV/
+.idea/
+.vscode/
+.DS_Store
+
+# Captures (avoid committing sensitive traffic)
+captures/*.pcap
+captures/*.pcapng
