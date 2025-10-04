@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import os
+import signal
 import socket
 import struct
 import sys
@@ -251,27 +252,70 @@ def scapy_read_pcap(path: str, count: Optional[int], filt: Optional[str], no_pay
 
 def scapy_live_capture(interface: str, count: Optional[int], filt: Optional[str], no_payload: bool, truncate: int, save_path: Optional[Path], stats: Dict[str, int]) -> None:
     require_live_privileges_or_exit()
+    
+    # On Windows, if a friendly name is provided, try to find the corresponding interface
+    if os.name == 'nt' and not interface.startswith('\\.\\'):
+        try:
+            from scapy.arch.windows import get_windows_if_list
+            interfaces = get_windows_if_list()
+            for iface in interfaces:
+                if iface.get('name') == interface or iface.get('description') == interface:
+                    interface = iface.get('name')  # Use the actual interface name
+                    break
+        except Exception as e:
+            print(f"[WARN] Could not map friendly name to interface: {e}")
+    
     print(f"[INFO] Live capture on {interface} (Scapy)")
     kept: List[Packet] = []
     writer: Optional[PcapWriter] = None
 
     def _cb(p: Packet):
-        if simple_filter(p, filt):
-            show_packet(p, no_payload, truncate, stats)
-            kept.append(p)
-            nonlocal writer
-            if save_path and writer is None:
-                try:
-                    writer = PcapWriter(str(save_path), append=False, sync=True)
-                    print(f"[INFO] Creating PCAP and streaming to: {save_path}")
-                except Exception as e:
-                    print(f"[WARN] Could not create PCAP writer: {e}")
-                    writer = None
-            if writer is not None:
-                try:
-                    writer.write(p)
-                except Exception:
-                    pass
+        if p is None:
+            return
+            
+        try:
+            # Skip packets that don't have any layers
+            if not hasattr(p, 'haslayer') or not callable(p.haslayer):
+                return
+                
+            # Skip non-IP packets if we're filtering for IP traffic
+            if filt and filt.lower() in ['ip', 'tcp', 'udp', 'icmp'] and not (p.haslayer('IP') or p.haslayer('IPv6')):
+                return
+                
+            # Apply the filter if one is set
+            if filt and not simple_filter(p, filt):
+                return
+                
+            # Show and process the packet
+            try:
+                show_packet(p, no_payload, truncate, stats)
+                kept.append(p)
+                
+                # Initialize PCAP writer on first packet if needed
+                nonlocal writer
+                if save_path and writer is None:
+                    try:
+                        writer = PcapWriter(str(save_path), append=False, sync=True)
+                        print(f"[INFO] Creating PCAP and streaming to: {save_path}")
+                    except Exception as e:
+                        print(f"[WARN] Could not create PCAP writer: {e}")
+                        writer = None
+                
+                # Write to PCAP if writer is available
+                if writer is not None:
+                    try:
+                        writer.write(p)
+                    except Exception as e:
+                        print(f"[WARN] Failed to write packet to PCAP: {e}")
+                        
+            except Exception as e:
+                if 'not supported between instances' in str(e):
+                    return
+                print(f"[WARN] Error showing packet: {e}")
+                
+        except Exception as e:
+            # Skip any other errors silently
+            return
 
     sniff(iface=interface, count=count, filter=filt, prn=_cb)
     if writer is not None:
@@ -333,15 +377,39 @@ def list_interfaces() -> None:
         print("Scapy is required to list interfaces. Install with: python -m pip install scapy")
         return
     try:
-        interfaces = get_if_list()
-        print("Available interfaces:")
-        for name in interfaces:
-            print(f"  - {name}")
+        if os.name == 'nt':
+            # Windows: Use get_windows_if_list for friendly names
+            from scapy.arch.windows import get_windows_if_list
+            interfaces = get_windows_if_list()
+            print("Available interfaces:")
+            for iface in interfaces:
+                name = iface.get('name', 'Unknown')
+                desc = iface.get('description', 'No description')
+                ips = ', '.join(ip for ip in iface.get('ips', []) if ':' not in ip)  # Skip IPv6 for brevity
+                print(f"  - {name} (Description: {desc})")
+                if ips:
+                    print(f"     IPs: {ips}")
+        else:
+            # Non-Windows: Fall back to standard get_if_list
+            interfaces = get_if_list()
+            print("Available interfaces:")
+            for name in interfaces:
+                print(f"  - {name}")
     except Exception as e:
         print(f"Failed to list interfaces: {e}")
 
 
 def main() -> None:
+    # Initialize colorama for colored output
+    colorama_init()
+    
+    def signal_handler(sig, frame):
+        print(f"\n{Fore.LIGHTGREEN_EX}[*] Sniffer stopped by user (Ctrl+C). Exiting gracefully...{Style.RESET_ALL}")
+        sys.exit(0)
+    
+    # Set up signal handler for Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler)
+    
     parser = argparse.ArgumentParser(description="Ife Network Sniffer (Educational)")
 
     mode = parser.add_mutually_exclusive_group(required=False)

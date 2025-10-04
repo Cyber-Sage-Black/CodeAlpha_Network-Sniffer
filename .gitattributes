@@ -1,0 +1,13 @@
+# Normalize line endings
+* text=auto eol=lf
+*.{cmd,[cC][mM][dD]} text eol=crlf
+*.{bat,[bB][aA][tT]} text eol=crlf
+
+# Binary files
+*.bin binary
+*.pcap binary
+*.pcapng binary
+
+# Text files that should remain with CRLF
+*.md text eol=crlf
+*.txt text eol=crlf
